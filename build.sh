@@ -60,7 +60,32 @@ build_with_swiftc() {
         objs+=("$obj")
     done
 
+    local sdk
+    sdk=$(xcrun --show-sdk-path)
+
+    # Locate the SwiftUI macro plugin so swiftc can resolve @State etc.
+    local plugin_flags=()
+    local toolchain_lib
+    toolchain_lib=$(xcrun --find swiftc 2>/dev/null | xargs -I{} dirname {} | xargs -I{} dirname {})
+    local candidate
+    for candidate in \
+        "$toolchain_lib/lib/swift/host/plugins/libSwiftUIMacros.dylib" \
+        "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" \
+        "$(find /Library/Developer/CommandLineTools -name 'libSwiftUIMacros*' -type f 2>/dev/null | head -1)"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            plugin_flags=(-load-plugin-library "$candidate")
+            echo "Using SwiftUI macro plugin: $candidate"
+            break
+        fi
+    done
+    if [[ ${#plugin_flags[@]} -eq 0 ]]; then
+        echo "WARNING: SwiftUIMacros plugin not found; build may fail." >&2
+        find /Library/Developer -name 'libSwiftUIMacros*' 2>/dev/null | head -5
+    fi
+
     swiftc -O -swift-version 5 -target "$target" \
+        -sdk "$sdk" \
+        "${plugin_flags[@]+"${plugin_flags[@]}"}" \
         -I"$XCODE_DIR/engine" -I"$XCODE_DIR/ime" \
         -import-objc-header "$XCODE_DIR/ime/GboardBridge.h" \
         -framework Cocoa -framework InputMethodKit \

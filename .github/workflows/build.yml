@@ -1,0 +1,61 @@
+name: Build GboardIME
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      xapk_url:
+        description: "Direct download URL for Gboard XAPK/APK"
+        required: false
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies
+        run: brew install jq
+
+      # Resolve the XAPK download URL: workflow_dispatch input takes priority,
+      # then the GBOARD_XAPK_URL repository secret.
+      - name: Download Gboard XAPK
+        env:
+          XAPK_URL_SECRET: ${{ secrets.GBOARD_XAPK_URL }}
+          XAPK_URL_INPUT: ${{ inputs.xapk_url }}
+        run: |
+          URL="${XAPK_URL_INPUT:-$XAPK_URL_SECRET}"
+          if [[ -z "$URL" ]]; then
+            echo "Error: provide a Gboard XAPK URL via:"
+            echo "  - workflow_dispatch input 'xapk_url', or"
+            echo "  - repository secret 'GBOARD_XAPK_URL'"
+            exit 1
+          fi
+          echo "Downloading XAPK..."
+          curl -fsSL "$URL" -o gboard.xapk
+          echo "Downloaded: $(du -sh gboard.xapk | cut -f1)"
+
+      - name: Cache dict data
+        uses: actions/cache@v4
+        with:
+          path: hmmoemdata
+          key: hmmoemdata-zh_CN-${{ hashFiles('scripts/find_latest_hmm_manifest.sh') }}
+          restore-keys: hmmoemdata-zh_CN-
+
+      - name: Run setup (extract APK + fetch dict)
+        run: ./setup.sh --xapk gboard.xapk
+
+      - name: Build
+        run: ./build.sh build
+
+      - name: Upload GboardIME.app
+        uses: actions/upload-artifact@v4
+        with:
+          name: GboardIME-${{ github.sha }}
+          path: GboardIME/build/release/GboardIME.app
+          if-no-files-found: error
