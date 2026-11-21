@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      xapk_url:
-        description: "Direct download URL for Gboard XAPK/APK"
-        required: false
 
 jobs:
   build:
@@ -19,36 +15,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up dependencies
-        run: brew install jq
-
-      # Resolve the XAPK download URL: workflow_dispatch input takes priority,
-      # then the GBOARD_XAPK_URL repository secret.
-      - name: Download Gboard XAPK
-        env:
-          XAPK_URL_SECRET: ${{ secrets.GBOARD_XAPK_URL }}
-          XAPK_URL_INPUT: ${{ inputs.xapk_url }}
+      # Download the pre-extracted engine SO + dict pack from the
+      # engine-data-v1 release (created by running setup.sh locally).
+      - name: Download engine data
         run: |
-          URL="${XAPK_URL_INPUT:-$XAPK_URL_SECRET}"
-          if [[ -z "$URL" ]]; then
-            echo "Error: provide a Gboard XAPK URL via:"
-            echo "  - workflow_dispatch input 'xapk_url', or"
-            echo "  - repository secret 'GBOARD_XAPK_URL'"
-            exit 1
-          fi
-          echo "Downloading XAPK..."
-          curl -fsSL "$URL" -o gboard.xapk
-          echo "Downloaded: $(du -sh gboard.xapk | cut -f1)"
-
-      - name: Cache dict data
-        uses: actions/cache@v4
-        with:
-          path: hmmoemdata
-          key: hmmoemdata-zh_CN-${{ hashFiles('scripts/find_latest_hmm_manifest.sh') }}
-          restore-keys: hmmoemdata-zh_CN-
-
-      - name: Run setup (extract APK + fetch dict)
-        run: ./setup.sh --xapk gboard.xapk
+          curl -fsSL \
+            "https://github.com/chaoyanren/gboard/releases/download/engine-data-v1/gboard-engine-data.tar.gz" \
+            -o /tmp/gboard-engine-data.tar.gz
+          tar -xzf /tmp/gboard-engine-data.tar.gz
+          # Symlink current → actual dict dir so copy_engine_resources finds it
+          ln -sfn zh_cn_2026081806 hmmoemdata/current
+          echo "Engine data ready:"
+          ls -lh gboard_apk_source/resources/lib/arm64-v8a/libintegrated_shared_object.so
+          ls hmmoemdata/current/
 
       - name: Build
         run: ./build.sh build
